@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Smart Irrigation System 🌱</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="static/css/style.css">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+</head>
+<body>
+
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <span class="icon">🌱</span>
+    <h1>Smart<br><span>Irrigation</span><br>System</h1>
+  </div>
+  <nav class="nav">
+    <div class="nav-section">Principal</div>
+    <button class="nav-item active" data-page="dashboard" onclick="navigate(this)">
+      <span class="nav-icon">📊</span><span>Dashboard</span>
+    </button>
+    <button class="nav-item" data-page="history" onclick="navigate(this)">
+      <span class="nav-icon">📈</span><span>Historique</span>
+    </button>
+    <button class="nav-item" data-page="stats" onclick="navigate(this)">
+      <span class="nav-icon">📉</span><span>Statistiques</span>
+    </button>
+
+    <div class="nav-section">Gestion</div>
+    <button class="nav-item" data-page="alerts" onclick="navigate(this)">
+      <span class="nav-icon">🔔</span><span>Alertes</span>
+      <span class="nav-badge" id="alert-badge">0</span>
+    </button>
+    <button class="nav-item" data-page="irrigations" onclick="navigate(this)">
+      <span class="nav-icon">💧</span><span>Irrigations</span>
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="sensor-status">
+      <div class="dot"></div>
+      <span>4 capteurs actifs</span>
+    </div>
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="main">
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-title">
+      <h2 id="page-title">Dashboard</h2>
+      <p id="page-sub">Vue d'ensemble en temps réel</p>
+    </div>
+    <div class="topbar-actions">
+      <span class="last-update" id="last-update">--:--:--</span>
+      <button class="btn btn-outline btn-sm" onclick="refreshAll()">🔄 Actualiser</button>
+      <button class="btn btn-primary btn-sm" onclick="openIrrigateModal()">💧 Irriguer</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <!-- ── DASHBOARD ── -->
+    <div class="page active" id="page-dashboard">
+      <!-- KPIs -->
+      <div class="kpi-grid">
+        <div class="kpi-card green">
+          <div class="kpi-label">Humidité moyenne</div>
+          <div class="kpi-value" id="kpi-hum">--<small style="font-size:16px">%</small></div>
+          <div class="kpi-sub">Tous les capteurs</div>
+          <div class="kpi-icon">💧</div>
+        </div>
+        <div class="kpi-card amber">
+          <div class="kpi-label">Température moy.</div>
+          <div class="kpi-value" id="kpi-tmp">--<small style="font-size:16px">°C</small></div>
+          <div class="kpi-sub">Tous les capteurs</div>
+          <div class="kpi-icon">🌡️</div>
+        </div>
+        <div class="kpi-card red">
+          <div class="kpi-label">Alertes actives</div>
+          <div class="kpi-value" id="kpi-alerts">--</div>
+          <div class="kpi-sub">Non résolues</div>
+          <div class="kpi-icon">⚠️</div>
+        </div>
+        <div class="kpi-card blue">
+          <div class="kpi-label">Irrigations totales</div>
+          <div class="kpi-value" id="kpi-irr">--</div>
+          <div class="kpi-sub">Cette semaine</div>
+          <div class="kpi-icon">🌊</div>
+        </div>
+      </div>
+
+      <!-- Sensor Cards -->
+      <div class="sensor-grid" id="sensor-cards"></div>
+
+      <!-- Mini Charts -->
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">Évolution Humidité — Zone A</div>
+              <div class="chart-sub">Dernières lectures</div>
+            </div>
+            <div class="time-tabs">
+              <button class="time-tab active" onclick="setTimeRange(this,1)">1h</button>
+              <button class="time-tab" onclick="setTimeRange(this,6)">6h</button>
+              <button class="time-tab" onclick="setTimeRange(this,24)">24h</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-live"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">Répartition Alertes</div>
+              <div class="chart-sub">7 derniers jours</div>
+            </div>
+          </div>
+          <div class="donut-wrap"><canvas id="chart-alerts-donut"></canvas></div>
+          <div class="legend" id="donut-legend"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── HISTORY ── -->
+    <div class="page" id="page-history">
+      <div class="history-controls">
+        <div class="form-group">
+          <label class="form-label">Capteur</label>
+          <select class="form-select" id="hist-sensor" onchange="loadHistory()">
+            <option value="1">Zone A — Nord</option>
+            <option value="2">Zone B — Centre</option>
+            <option value="3">Zone C — Sud</option>
+            <option value="4">Zone D — Est</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Période</label>
+          <select class="form-select" id="hist-period" onchange="loadHistory()">
+            <option value="6">6 heures</option>
+            <option value="24" selected>24 heures</option>
+            <option value="48">48 heures</option>
+            <option value="168">7 jours</option>
+          </select>
+        </div>
+        <div style="margin-top:20px;">
+          <button class="btn btn-primary btn-sm" onclick="loadHistory()">📊 Charger</button>
+        </div>
+      </div>
+      <div class="history-charts">
+        <div class="chart-card-full">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">💧 Humidité du sol</div>
+              <div class="chart-sub" id="hist-hum-sub">—</div>
+            </div>
+          </div>
+          <div class="chart-wrap-lg"><canvas id="chart-hist-hum"></canvas></div>
+        </div>
+        <div class="chart-card-full">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">🌡️ Température</div>
+              <div class="chart-sub" id="hist-tmp-sub">—</div>
+            </div>
+          </div>
+          <div class="chart-wrap-lg"><canvas id="chart-hist-tmp"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── STATS ── -->
+    <div class="page" id="page-stats">
+      <div class="stats-grid">
+        <div class="chart-card" style="grid-column: span 2;">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">📊 Humidité moyenne journalière</div>
+              <div class="chart-sub">7 derniers jours — tous les capteurs</div>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-daily-hum"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">💧 Irrigations par jour</div>
+              <div class="chart-sub">7 derniers jours</div>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-daily-irr"></canvas></div>
+        </div>
+      </div>
+      <div class="charts-grid">
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">🗺️ Humidité par Zone</div>
+              <div class="chart-sub">Dernière heure</div>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="chart-zone-hum"></canvas></div>
+        </div>
+        <div class="chart-card">
+          <div class="chart-header">
+            <div>
+              <div class="chart-title">⚠️ Alertes par type</div>
+              <div class="chart-sub">7 derniers jours</div>
+            </div>
+          </div>
+          <div class="donut-wrap"><canvas id="chart-alert-type"></canvas></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── ALERTS ── -->
+    <div class="page" id="page-alerts">
+      <div class="alert-filters">
+        <button class="filter-btn active" onclick="filterAlerts(this,'active')">🔴 Actives</button>
+        <button class="filter-btn" onclick="filterAlerts(this,'resolved')">✅ Résolues</button>
+      </div>
+      <div class="alert-list" id="alert-list">
+        <div class="loading"><span class="spin">⏳</span> Chargement...</div>
+      </div>
+    </div>
+
+    <!-- ── IRRIGATIONS ── -->
+    <div class="page" id="page-irrigations">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="openIrrigateModal()">💧 Nouvelle irrigation</button>
+      </div>
+      <div class="irr-table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Zone</th>
+              <th>Début</th>
+              <th>Fin</th>
+              <th>Durée</th>
+              <th>Déclencheur</th>
+              <th>Statut</th>
+            </tr>
+          </thead>
+          <tbody id="irr-tbody">
+            <tr><td colspan="6" class="loading"><span class="spin">⏳</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /main -->
+
+<!-- Modal Irrigation -->
+<div class="modal-overlay" id="modal-irrigate">
+  <div class="modal">
+    <div class="modal-title">💧 Démarrer une Irrigation</div>
+    <div class="modal-sub">Sélectionnez la zone et la durée souhaitée.</div>
+    <div class="modal-form">
+      <div class="form-group">
+        <label class="form-label">Zone</label>
+        <select class="form-select" id="irr-sensor">
+          <option value="1">Zone A — Nord</option>
+          <option value="2">Zone B — Centre</option>
+          <option value="3">Zone C — Sud</option>
+          <option value="4">Zone D — Est</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Durée (minutes)</label>
+        <input class="form-input" type="number" id="irr-duration" value="30" min="5" max="120">
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeModal()">Annuler</button>
+      <button class="btn btn-primary" onclick="startIrrigation()">💧 Démarrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toasts"></div>
+
+<script src="static/js/script.js"></script>
+</body>
+</html>
