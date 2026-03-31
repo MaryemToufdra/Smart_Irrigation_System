@@ -8,13 +8,15 @@ STRUCTURE DU PROJET ATTENDUE :
       projet.py          <- CE FICHIER
     Data/
       data.json
+    data/
+      model.pkl          <- livre par le coequipier Data (optionnel)
     web/
       templates/
         index.html
       static/
         css/style.css
         js/script.js
-    irrigation_db        <- base MySQL (créée automatiquement)
+    irrigation_db        <- base MySQL (creee automatiquement)
 """
 
 import json, os
@@ -22,20 +24,33 @@ import mysql.connector
 from datetime import datetime, timedelta
 from flask import Flask, render_template, jsonify, request, g
 
+# ─── AJOUT : CORS pour autoriser les requetes du simulateur ──────────────────
+# pip install flask-cors
+from flask_cors import CORS
+
+# ─── AJOUT : chargement optionnel du modele IA (livre par Data) ──────────────
+import joblib
+
 # ─── Chemins absolus ──────────────────────────────────────────────────────────
-_BASE     = os.path.dirname(os.path.abspath(__file__))
-JSON_FILE = os.path.join(_BASE, "..", "Data", "data.json")
+_BASE      = os.path.dirname(os.path.abspath(__file__))
+JSON_FILE  = os.path.join(_BASE, "..", "Data", "data.json")
+
+# ─── AJOUT : chemin vers le modele IA ────────────────────────────────────────
+MODEL_PATH = os.path.join(_BASE, "..", "data", "model.pkl")
 
 # ─── Flask ────────────────────────────────────────────────────────────────────
 app = Flask(
     __name__,
-    template_folder=os.path.join(_BASE, "..", "..", "web", "templates"),
-    static_folder=os.path.join(_BASE,   "..", "..", "web", "static")
+    template_folder=os.path.join(_BASE, "..", "templates"),
+    static_folder=os.path.join(_BASE, "..", "static")
 )
 app.secret_key = "irrigation-secret-2026"
 
+# ─── AJOUT : activer CORS sur toutes les routes ──────────────────────────────
+# Necessaire pour que le simulateur (autre PC) puisse envoyer des requetes
+CORS(app)
+
 # ─── Configuration MySQL ──────────────────────────────────────────────────────
-# Modifiez ces valeurs selon votre configuration
 DB_CONFIG = {
     "host"    : "localhost",
     "user"    : "root",
@@ -43,19 +58,28 @@ DB_CONFIG = {
     "database": "irrigation_db"
 }
 
-# ─── Registre des capteurs ────────────────────────────────────────────────────
-SENSOR_REGISTRY = {
-    1: {"name": "Zone A - Nord",   "zone": "Nord",   "latitude": 31.62, "longitude": -8.01},
-    2: {"name": "Zone B - Centre", "zone": "Centre", "latitude": 31.60, "longitude": -8.00},
-    3: {"name": "Zone C - Sud",    "zone": "Sud",    "latitude": 31.58, "longitude": -8.02},
-    4: {"name": "Zone D - Est",    "zone": "Est",    "latitude": 31.61, "longitude": -7.99},
-}
+# ─── SUPPRIME : SENSOR_REGISTRY code en dur ───────────────────────────────────
+# Les capteurs se creent maintenant automatiquement via POST /api/data
+# Plus besoin de les definir ici manuellement
 
 # ─── Seuils d'alerte ──────────────────────────────────────────────────────────
 SEUIL_HUM_CRITICAL = 25.0
 SEUIL_HUM_WARNING  = 35.0
 SEUIL_TMP_CRITICAL = 40.0
 SEUIL_TMP_WARNING  = 35.0
+
+# ─── AJOUT : chargement du modele IA au demarrage ────────────────────────────
+# Si model.pkl existe (livre par Data), on l'utilise.
+# Sinon, on utilise la fonction de secours ai_prediction().
+_ML_MODEL = None
+if os.path.exists(MODEL_PATH):
+    try:
+        _ML_MODEL = joblib.load(MODEL_PATH)
+        print(f"[INFO] Modele IA charge depuis {MODEL_PATH}")
+    except Exception as e:
+        print(f"[WARN] Impossible de charger model.pkl : {e}")
+else:
+    print("[INFO] model.pkl absent — utilisation de la prediction de secours.")
 
 # ─── Connexion MySQL ──────────────────────────────────────────────────────────
 
@@ -74,7 +98,7 @@ def close_db(exc):
 # ─── Initialisation de la base ────────────────────────────────────────────────
 
 def init_db():
-    """Crée la base et les tables si elles n'existent pas."""
+    """Cree la base et les tables si elles n'existent pas."""
     conn = mysql.connector.connect(
         host=DB_CONFIG["host"],
         user=DB_CONFIG["user"],
@@ -151,7 +175,7 @@ def init_db():
 # ─── Utilitaires JSON ─────────────────────────────────────────────────────────
 
 def normalize_entry(entry):
-    """Complète les attributs manquants. Retourne None si entrée invalide."""
+    """Complete les attributs manquants. Retourne None si entree invalide."""
     timestamp = entry.get("timestamp")
     sensor_id = entry.get("sensor_id")
     humidity  = entry.get("soil_humidity_%")
@@ -167,9 +191,9 @@ def normalize_entry(entry):
     except (ValueError, TypeError):
         return None
 
-    reg         = SENSOR_REGISTRY.get(sensor_id, {})
-    sensor_name = entry.get("sensor_name") or reg.get("name") or f"Capteur {sensor_id}"
-    zone        = entry.get("zone")        or reg.get("zone") or f"Zone {sensor_id}"
+    # MODIFIE : plus de SENSOR_REGISTRY, on prend ce qui est dans le JSON
+    sensor_name = entry.get("sensor_name") or f"Capteur {sensor_id}"
+    zone        = entry.get("zone")        or f"Zone {sensor_id}"
 
     alert_type     = entry.get("alert_type")
     alert_severity = entry.get("alert_severity")
@@ -204,8 +228,34 @@ def normalize_entry(entry):
         "irr_duration"  : irr_duration,
     }
 
+# ─── MODIFIE : ai_prediction utilise le vrai modele si disponible ─────────────
+
 def ai_prediction(humidity, temperature, hour):
-    """Prédiction IA basée sur humidité, température et heure."""
+    """
+    Prediction IA.
+    - Si model.pkl est charge : utilise le vrai modele ML (livre par Data).
+    - Sinon : utilise la logique de secours basee sur les seuils.
+    """
+    # ── Vrai modele ML ────────────────────────────────────────────────────────
+    if _ML_MODEL is not None:
+        try:
+            features = [[humidity, temperature, hour]]
+            pred     = _ML_MODEL.predict(features)[0]
+            proba    = _ML_MODEL.predict_proba(features)[0]
+
+            if pred == 1:
+                confidence = round(float(proba[1]), 2)
+                if confidence > 0.85:
+                    return "Irriguer maintenant", confidence, 0
+                else:
+                    return "Irriguer dans 2h",    confidence, 2
+            else:
+                return "Pas necessaire", round(float(proba[0]), 2), 8
+
+        except Exception as e:
+            print(f"[WARN] Erreur modele ML : {e} — bascule sur logique de secours")
+
+    # ── Logique de secours (sans model.pkl) ───────────────────────────────────
     score  = max(0, (40 - humidity) * 2)
     score += max(0, (temperature - 30) * 1.5)
     score += 10 if 6  <= hour <= 10 else 0
@@ -220,22 +270,85 @@ def ai_prediction(humidity, temperature, hour):
     else:
         return "Pas necessaire",      0.85,                   8
 
-# ─── Chargement JSON -> MySQL ─────────────────────────────────────────────────
+# ─── AJOUT : helper interne factorise ────────────────────────────────────────
 
 def ensure_sensor_exists(conn, sensor_id, sensor_name, zone):
-    """Insère le capteur s'il n'existe pas encore."""
+    """Insere le capteur s'il n'existe pas encore."""
     c = conn.cursor()
     c.execute("SELECT id FROM sensors WHERE id=%s", (sensor_id,))
     if c.fetchone():
         return
-    reg = SENSOR_REGISTRY.get(sensor_id, {})
     c.execute(
-        "INSERT IGNORE INTO sensors(id, name, zone, latitude, longitude) VALUES(%s,%s,%s,%s,%s)",
-        (sensor_id, sensor_name, zone, reg.get("latitude"), reg.get("longitude"))
+        "INSERT IGNORE INTO sensors(id, name, zone, active) VALUES(%s,%s,%s,1)",
+        (sensor_id, sensor_name, zone)
     )
 
+def _insert_reading_and_side_effects(conn, sensor_id, humidity, temperature, timestamp):
+    """
+    Insere une lecture + prediction + alerte eventuelle.
+    Factorise la logique commune entre load_json_into_db et POST /api/data.
+    Retourne 'skipped' si doublon, sinon la recommandation IA.
+    """
+    c = conn.cursor(dictionary=True)
+
+    # Doublon ?
+    c.execute(
+        "SELECT id FROM readings WHERE sensor_id=%s AND timestamp=%s",
+        (sensor_id, timestamp)
+    )
+    if c.fetchone():
+        return "skipped"
+
+    # Lecture
+    c.execute(
+        "INSERT INTO readings(sensor_id, timestamp, humidity, temperature) VALUES(%s,%s,%s,%s)",
+        (sensor_id, timestamp, humidity, temperature)
+    )
+
+    # Prediction IA
+    try:
+        hour = datetime.strptime(str(timestamp), "%Y-%m-%d %H:%M:%S").hour
+    except ValueError:
+        hour = datetime.now().hour
+
+    rec, conf, ahead = ai_prediction(humidity, temperature, hour)
+    c.execute(
+        "INSERT INTO predictions(sensor_id, timestamp, recommend, confidence, hours_ahead) "
+        "VALUES(%s,%s,%s,%s,%s)",
+        (sensor_id, timestamp, rec, conf, ahead)
+    )
+
+    # Alerte si seuil depasse
+    alert_type = alert_severity = None
+    if humidity < SEUIL_HUM_CRITICAL:
+        alert_type, alert_severity = "low_humidity", "critical"
+    elif humidity < SEUIL_HUM_WARNING:
+        alert_type, alert_severity = "low_humidity", "warning"
+    elif temperature > SEUIL_TMP_CRITICAL:
+        alert_type, alert_severity = "high_temp", "critical"
+    elif temperature > SEUIL_TMP_WARNING:
+        alert_type, alert_severity = "high_temp", "warning"
+
+    if alert_type:
+        if "humidity" in alert_type:
+            seuil = SEUIL_HUM_CRITICAL if alert_severity == "critical" else SEUIL_HUM_WARNING
+            msg   = f"Humidite {humidity:.1f}% (seuil : {seuil}%)"
+        else:
+            seuil = SEUIL_TMP_CRITICAL if alert_severity == "critical" else SEUIL_TMP_WARNING
+            msg   = f"Temperature {temperature:.1f}C (seuil : {seuil}C)"
+
+        c.execute(
+            "INSERT INTO alerts(sensor_id, timestamp, type, message, severity, resolved) "
+            "VALUES(%s,%s,%s,%s,%s,0)",
+            (sensor_id, timestamp, alert_type, msg, alert_severity)
+        )
+
+    return rec
+
+# ─── Chargement JSON -> MySQL ─────────────────────────────────────────────────
+
 def load_json_into_db():
-    """Lit data.json et insère toutes les entrées dans MySQL."""
+    """Lit data.json et insere toutes les entrees dans MySQL (import initial)."""
     if not os.path.exists(JSON_FILE):
         print(f"[WARN] Fichier introuvable : {JSON_FILE}")
         return
@@ -252,9 +365,7 @@ def load_json_into_db():
         return
 
     conn  = mysql.connector.connect(**DB_CONFIG)
-    c     = conn.cursor(dictionary=True)
-    stats = {"total": 0, "inserted": 0, "skipped": 0,
-             "invalid": 0, "alerts": 0, "irrigations": 0}
+    stats = {"total": 0, "inserted": 0, "skipped": 0, "invalid": 0, "irrigations": 0}
 
     for raw in raw_data:
         stats["total"] += 1
@@ -265,60 +376,32 @@ def load_json_into_db():
             print(f"[WARN] Entree ignoree : {raw}")
             continue
 
-        # Vérification doublon
-        c.execute(
-            "SELECT id FROM readings WHERE sensor_id=%s AND timestamp=%s",
-            (entry["sensor_id"], entry["timestamp"])
+        ensure_sensor_exists(conn, entry["sensor_id"], entry["sensor_name"], entry["zone"])
+
+        result = _insert_reading_and_side_effects(
+            conn,
+            entry["sensor_id"],
+            entry["humidity"],
+            entry["temperature"],
+            entry["timestamp"]
         )
-        if c.fetchone():
+
+        if result == "skipped":
             stats["skipped"] += 1
             continue
 
-        ensure_sensor_exists(conn, entry["sensor_id"], entry["sensor_name"], entry["zone"])
-
-        # Lecture
-        c.execute(
-            "INSERT INTO readings(sensor_id, timestamp, humidity, temperature) VALUES(%s,%s,%s,%s)",
-            (entry["sensor_id"], entry["timestamp"], entry["humidity"], entry["temperature"])
-        )
-
-        # Prédiction IA
-        try:
-            hour = datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S").hour
-        except ValueError:
-            hour = 12
-
-        rec, conf, ahead = ai_prediction(entry["humidity"], entry["temperature"], hour)
-        c.execute(
-            "INSERT INTO predictions(sensor_id, timestamp, recommend, confidence, hours_ahead) VALUES(%s,%s,%s,%s,%s)",
-            (entry["sensor_id"], entry["timestamp"], rec, conf, ahead)
-        )
-
-        # Alerte
-        if entry["alert_type"]:
-            seuil   = "25" if entry["alert_severity"] == "critical" else "35"
-            seuil_t = "40" if entry["alert_severity"] == "critical" else "35"
-            msg_map = {
-                "low_humidity": f"Humidite {entry['humidity']:.1f}% (seuil : {seuil}%)",
-                "high_temp"   : f"Temperature {entry['temperature']:.1f}C (seuil : {seuil_t}C)",
-            }
-            c.execute(
-                "INSERT INTO alerts(sensor_id, timestamp, type, message, severity, resolved) VALUES(%s,%s,%s,%s,%s,%s)",
-                (entry["sensor_id"], entry["timestamp"], entry["alert_type"],
-                 msg_map.get(entry["alert_type"], f"Alerte : {entry['alert_type']}"),
-                 entry["alert_severity"], 0)
-            )
-            stats["alerts"] += 1
-
-        # Irrigation
+        # Irrigation (specifique au JSON historique)
         if entry["irrigation"] and entry["irr_duration"] > 0:
             try:
                 ts_dt = datetime.strptime(entry["timestamp"], "%Y-%m-%d %H:%M:%S")
                 ended = (ts_dt + timedelta(minutes=entry["irr_duration"])).strftime("%Y-%m-%d %H:%M:%S")
             except ValueError:
                 ended = entry["timestamp"]
-            c.execute(
-                "INSERT INTO irrigation_events(sensor_id, started_at, ended_at, duration_min, trigger_type) VALUES(%s,%s,%s,%s,%s)",
+            c2 = conn.cursor()
+            c2.execute(
+                "INSERT INTO irrigation_events"
+                "(sensor_id, started_at, ended_at, duration_min, trigger_type) "
+                "VALUES(%s,%s,%s,%s,%s)",
                 (entry["sensor_id"], entry["timestamp"], ended, entry["irr_duration"], "json")
             )
             stats["irrigations"] += 1
@@ -335,22 +418,103 @@ def load_json_into_db():
   Inserees     : {stats['inserted']}
   Doublons     : {stats['skipped']} (ignores)
   Invalides    : {stats['invalid']}
-  Alertes      : {stats['alerts']}
   Irrigations  : {stats['irrigations']}
 """)
+
+# =============================================================================
+# AJOUT 1 — Reception des donnees du simulateur embarque
+# =============================================================================
+
+@app.route("/api/data", methods=["POST"])
+def receive_sensor_data():
+    """
+    Recoit les donnees du simulateur (coequipier embarque).
+    Appelee automatiquement toutes les 30 secondes par simulator.py.
+
+    Corps JSON attendu :
+    {
+        "sensor_id"   : 1,
+        "sensor_name" : "Zone A",      <- optionnel
+        "zone"        : "Nord",        <- optionnel
+        "humidity"    : 43.2,
+        "temperature" : 27.8
+    }
+    """
+    data = request.get_json(silent=True)
+
+    # Validation
+    if not data:
+        return jsonify({"ok": False, "error": "Corps JSON manquant"}), 400
+
+    for field in ("sensor_id", "humidity", "temperature"):
+        if field not in data:
+            return jsonify({"ok": False, "error": f"Champ manquant : {field}"}), 400
+
+    try:
+        sensor_id   = int(data["sensor_id"])
+        humidity    = float(data["humidity"])
+        temperature = float(data["temperature"])
+    except (ValueError, TypeError) as e:
+        return jsonify({"ok": False, "error": f"Valeur invalide : {e}"}), 400
+
+    if not (0 <= humidity <= 100):
+        return jsonify({"ok": False, "error": "humidity doit etre entre 0 et 100"}), 400
+
+    if not (-10 <= temperature <= 60):
+        return jsonify({"ok": False, "error": "temperature hors limites"}), 400
+
+    sensor_name = data.get("sensor_name", f"Capteur {sensor_id}")
+    zone        = data.get("zone",        f"Zone {sensor_id}")
+    now         = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    conn = get_db()
+    ensure_sensor_exists(conn, sensor_id, sensor_name, zone)
+    recommendation = _insert_reading_and_side_effects(
+        conn, sensor_id, humidity, temperature, now
+    )
+    conn.commit()
+
+    print(f"[DATA] {zone} | H={humidity}% T={temperature}C | {recommendation}")
+
+    return jsonify({
+        "ok"            : True,
+        "timestamp"     : now,
+        "sensor_id"     : sensor_id,
+        "recommendation": recommendation,
+    })
+
+# =============================================================================
+# AJOUT 2 — Rechargement du modele IA a chaud (quand Data livre model.pkl)
+# =============================================================================
+
+@app.route("/api/reload-model", methods=["POST"])
+def reload_model():
+    """
+    Recharge model.pkl sans redemarrer Flask.
+    Utile quand Data livre une nouvelle version du modele.
+    Appel : POST http://localhost:5000/api/reload-model
+    """
+    global _ML_MODEL
+    if not os.path.exists(MODEL_PATH):
+        return jsonify({"ok": False, "error": f"model.pkl introuvable : {MODEL_PATH}"}), 404
+    try:
+        _ML_MODEL = joblib.load(MODEL_PATH)
+        return jsonify({"ok": True, "message": "Modele IA recharge avec succes"})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 # ─── Endpoint rechargement JSON ───────────────────────────────────────────────
 
 @app.route("/api/reload-json", methods=["POST"])
 def reload_json():
     load_json_into_db()
-    conn  = get_db()
-    c     = conn.cursor(dictionary=True)
+    conn = get_db()
+    c    = conn.cursor(dictionary=True)
     c.execute("SELECT COUNT(*) as c FROM readings")
     count = c.fetchone()["c"]
-    return jsonify({"ok": True, "message": f"JSON rechargé — {count} lectures en base"})
+    return jsonify({"ok": True, "message": f"JSON recharge — {count} lectures en base"})
 
-# ─── Routes API ───────────────────────────────────────────────────────────────
+# ─── Routes API existantes ────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
@@ -358,8 +522,8 @@ def index():
 
 @app.route("/api/dashboard")
 def api_dashboard():
-    conn    = get_db()
-    c       = conn.cursor(dictionary=True)
+    conn = get_db()
+    c    = conn.cursor(dictionary=True)
 
     c.execute("SELECT * FROM sensors WHERE active=1")
     sensors = c.fetchall()
@@ -405,7 +569,8 @@ def api_dashboard():
     return jsonify({
         "sensors"          : result,
         "total_alerts"     : total_alerts,
-        "total_irrigations": total_irrigations
+        "total_irrigations": total_irrigations,
+        "model_active"     : _ML_MODEL is not None,  # AJOUT : utile pour afficher badge IA
     })
 
 @app.route("/api/history/<int:sensor_id>")
@@ -418,11 +583,12 @@ def api_history(sensor_id):
         "SELECT MAX(timestamp) as mx FROM readings WHERE sensor_id=%s",
         (sensor_id,)
     )
-    row = c.fetchone()
+    row    = c.fetchone()
     latest = row["mx"] if row else None
 
     if latest:
-        latest_dt = latest if isinstance(latest, datetime) else datetime.strptime(str(latest), "%Y-%m-%d %H:%M:%S")
+        latest_dt = latest if isinstance(latest, datetime) \
+                    else datetime.strptime(str(latest), "%Y-%m-%d %H:%M:%S")
     else:
         latest_dt = datetime.now()
 
@@ -434,11 +600,8 @@ def api_history(sensor_id):
         (sensor_id, since)
     )
     rows = c.fetchall()
-
-    # Convertir datetime en string pour JSON
     for r in rows:
         r["timestamp"] = str(r["timestamp"])
-
     return jsonify(rows)
 
 @app.route("/api/alerts")
@@ -490,7 +653,9 @@ def irrigate():
     now       = datetime.now()
     end       = now + timedelta(minutes=duration)
     c.execute(
-        "INSERT INTO irrigation_events(sensor_id, started_at, ended_at, duration_min, trigger_type) VALUES(%s,%s,%s,%s,%s)",
+        "INSERT INTO irrigation_events"
+        "(sensor_id, started_at, ended_at, duration_min, trigger_type) "
+        "VALUES(%s,%s,%s,%s,%s)",
         (sensor_id,
          now.strftime("%Y-%m-%d %H:%M:%S"),
          end.strftime("%Y-%m-%d %H:%M:%S"),
@@ -509,7 +674,8 @@ def api_stats():
     latest = row["mx"] if row else None
 
     if latest:
-        latest_dt = latest if isinstance(latest, datetime) else datetime.strptime(str(latest), "%Y-%m-%d %H:%M:%S")
+        latest_dt = latest if isinstance(latest, datetime) \
+                    else datetime.strptime(str(latest), "%Y-%m-%d %H:%M:%S")
     else:
         latest_dt = datetime.now()
 
@@ -594,5 +760,10 @@ def api_live():
 if __name__ == "__main__":
     init_db()
     load_json_into_db()
-    print("Smart Irrigation System demarre sur http://localhost:5000")
+    print("=" * 55)
+    print("  Smart Irrigation System")
+    print(f"  Modele IA : {'ACTIF (model.pkl)' if _ML_MODEL else 'secours (seuils)'}")
+    print("  Dashboard  : http://localhost:5000")
+    print("  API data   : POST http://0.0.0.0:5000/api/data")
+    print("=" * 55)
     app.run(debug=False, host="0.0.0.0", port=5000, use_reloader=False)
