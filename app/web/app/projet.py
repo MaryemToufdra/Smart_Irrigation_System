@@ -23,10 +23,13 @@ DB        = os.path.join(_BASE, "..", "irrigation.db")
 JSON_FILE = os.path.join(_BASE, "..","Data" ,"data.json")
 
 # ─── CORRECTION 2 : template_folder absolu ───────────────────────────────────
-app = Flask(
+app = Flask (
     __name__,
-    template_folder=os.path.join(_BASE, "templates")
+template_folder=os.path.join(_BASE, "..", "..", "web", "templates"),
+static_folder=os.path.join(_BASE, "..", "..", "web", "static")
 )
+
+
 app.secret_key = "irrigation-secret-2026"
 
 # ─── Registre des capteurs ────────────────────────────────────────────────────

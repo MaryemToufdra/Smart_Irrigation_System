@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smart Irrigation System 🌱</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="static/css/style.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
@@ -15,8 +15,8 @@
 <!-- Sidebar -->
 <aside class="sidebar">
   <div class="sidebar-logo">
-    <span class="icon">🌱</span>
-    <h1>Smart<br><span>Irrigation</span><br>System</h1>
+    <span class="icon">🌿</span>
+    <h1><span>Agri</span>Tech</h1>
   </div>
   <nav class="nav">
     <div class="nav-section">Principal</div>
@@ -39,28 +39,31 @@
       <span class="nav-icon">💧</span><span>Irrigations</span>
     </button>
   </nav>
-  <div class="sidebar-footer">
-    <div class="sensor-status">
-      <div class="dot"></div>
-      <span>4 capteurs actifs</span>
-    </div>
-  </div>
+ 
 </aside>
 
 <!-- Main -->
 <div class="main">
   <!-- Topbar -->
-  <div class="topbar">
-    <div class="topbar-title">
-      <h2 id="page-title">Dashboard</h2>
-      <p id="page-sub">Vue d'ensemble en temps réel</p>
-    </div>
-    <div class="topbar-actions">
-      <span class="last-update" id="last-update">--:--:--</span>
-      <button class="btn btn-outline btn-sm" onclick="refreshAll()">🔄 Actualiser</button>
-      <button class="btn btn-primary btn-sm" onclick="openIrrigateModal()">💧 Irriguer</button>
-    </div>
+<div class="topbar">
+  <div class="topbar-breadcrumb">
+    <span class="topbar-dot"></span>
+    <span class="topbar-page-name" id="page-title">Dashboard</span>
+    <span class="topbar-sep">/</span>
+    <span class="topbar-sub" id="page-sub">Vue d'ensemble</span>
   </div>
+
+  
+
+  <div class="topbar-actions">
+    <button class="topbar-btn-refresh" onclick="refreshAll()">
+      <span>🔄</span> Actualiser
+    </button>
+    <button class="topbar-btn-irrigate" onclick="openIrrigateModal()">
+      <span>💧</span> Irriguer
+    </button>
+  </div>
+</div>
 
   <div class="content">
 
@@ -285,6 +288,6 @@
 <!-- Toast Container -->
 <div class="toast-container" id="toasts"></div>
 
-<script src="static/js/script.js"></script>
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>
