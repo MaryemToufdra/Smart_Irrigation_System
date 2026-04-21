@@ -9,7 +9,7 @@ STRUCTURE DU PROJET ATTENDUE :
     Data/
       data.json
     data/
-      model.pkl          <- livre par le coequipier Data (optionnel)
+     irrigation_irrigation_model.pkl         <- livre par le coequipier Data (optionnel)
     web/
       templates/
         index.html
@@ -30,13 +30,14 @@ from flask_cors import CORS
 
 # ─── AJOUT : chargement optionnel du modele IA (livre par Data) ──────────────
 import joblib
-
+import warnings
+warnings.filterwarnings("ignore")
 # ─── Chemins absolus ──────────────────────────────────────────────────────────
 _BASE      = os.path.dirname(os.path.abspath(__file__))
-JSON_FILE  = os.path.join(_BASE, "..", "Data", "data.json")
+JSON_FILE  = os.path.join(_BASE, "..", "..", "Data", "data.json")
 
 # ─── AJOUT : chemin vers le modele IA ────────────────────────────────────────
-MODEL_PATH = os.path.join(_BASE, "..", "data", "model.pkl")
+MODEL_PATH = os.path.join(_BASE, "..", "..", "data_ai", "entrep", "irrigation_model.pkl")
 
 # ─── Flask ────────────────────────────────────────────────────────────────────
 app = Flask(
@@ -69,7 +70,7 @@ SEUIL_TMP_CRITICAL = 40.0
 SEUIL_TMP_WARNING  = 35.0
 
 # ─── AJOUT : chargement du modele IA au demarrage ────────────────────────────
-# Si model.pkl existe (livre par Data), on l'utilise.
+# Si irrigation_model.pkl existe (livre par Data), on l'utilise.
 # Sinon, on utilise la fonction de secours ai_prediction().
 _ML_MODEL = None
 if os.path.exists(MODEL_PATH):
@@ -77,9 +78,9 @@ if os.path.exists(MODEL_PATH):
         _ML_MODEL = joblib.load(MODEL_PATH)
         print(f"[INFO] Modele IA charge depuis {MODEL_PATH}")
     except Exception as e:
-        print(f"[WARN] Impossible de charger model.pkl : {e}")
+        print(f"[WARN] Impossible de charger irrigation_model.pkl : {e}")
 else:
-    print("[INFO] model.pkl absent — utilisation de la prediction de secours.")
+    print("[INFO] irrigation_model.pkl absent — utilisation de la prediction de secours.")
 
 # ─── Connexion MySQL ──────────────────────────────────────────────────────────
 
@@ -233,7 +234,7 @@ def normalize_entry(entry):
 def ai_prediction(humidity, temperature, hour):
     """
     Prediction IA.
-    - Si model.pkl est charge : utilise le vrai modele ML (livre par Data).
+    - Si irrigation_model.pkl est charge : utilise le vrai modele ML (livre par Data).
     - Sinon : utilise la logique de secours basee sur les seuils.
     """
     # ── Vrai modele ML ────────────────────────────────────────────────────────
@@ -255,7 +256,7 @@ def ai_prediction(humidity, temperature, hour):
         except Exception as e:
             print(f"[WARN] Erreur modele ML : {e} — bascule sur logique de secours")
 
-    # ── Logique de secours (sans model.pkl) ───────────────────────────────────
+    # ── Logique de secours (sans irrigation_model.pkl) ───────────────────────────────────
     score  = max(0, (40 - humidity) * 2)
     score += max(0, (temperature - 30) * 1.5)
     score += 10 if 6  <= hour <= 10 else 0
@@ -365,6 +366,7 @@ def load_json_into_db():
         return
 
     conn  = mysql.connector.connect(**DB_CONFIG)
+    conn.autocommit = False
     stats = {"total": 0, "inserted": 0, "skipped": 0, "invalid": 0, "irrigations": 0}
 
     for raw in raw_data:
@@ -465,7 +467,7 @@ def receive_sensor_data():
 
     sensor_name = data.get("sensor_name", f"Capteur {sensor_id}")
     zone        = data.get("zone",        f"Zone {sensor_id}")
-    now         = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now         = data.get("timestamp") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     conn = get_db()
     ensure_sensor_exists(conn, sensor_id, sensor_name, zone)
@@ -484,7 +486,7 @@ def receive_sensor_data():
     })
 
 # =============================================================================
-# AJOUT 2 — Rechargement du modele IA a chaud (quand Data livre model.pkl)
+# AJOUT 2 — Rechargement du modele IA a chaud (quand Data livre irrigation_model.pkl)
 # =============================================================================
 
 @app.route("/api/reload-model", methods=["POST"])
@@ -496,7 +498,7 @@ def reload_model():
     """
     global _ML_MODEL
     if not os.path.exists(MODEL_PATH):
-        return jsonify({"ok": False, "error": f"model.pkl introuvable : {MODEL_PATH}"}), 404
+        return jsonify({"ok": False, "error": f"irrigation_model.pkl introuvable : {MODEL_PATH}"}), 404
     try:
         _ML_MODEL = joblib.load(MODEL_PATH)
         return jsonify({"ok": True, "message": "Modele IA recharge avec succes"})
@@ -762,7 +764,7 @@ if __name__ == "__main__":
     load_json_into_db()
     print("=" * 55)
     print("  Smart Irrigation System")
-    print(f"  Modele IA : {'ACTIF (model.pkl)' if _ML_MODEL else 'secours (seuils)'}")
+    print(f"  Modele IA : {'ACTIF (irrigation_model.pkl)' if _ML_MODEL else 'secours (seuils)'}")
     print("  Dashboard  : http://localhost:5000")
     print("  API data   : POST http://0.0.0.0:5000/api/data")
     print("=" * 55)

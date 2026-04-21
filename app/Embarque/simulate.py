@@ -77,7 +77,7 @@ def main():
                     'sensor_name': raw.get('sensor_name'),
                     'zone': raw.get('zone'),
                     'humidity': float(raw.get('soil_humidity_%', raw.get('humidity', 0))),
-                    'temperature': float(raw.get('temperature_C', raw.get('temperature', 0)))
+                    'temperature': float(raw.get('temperature_C', raw.get('temperature', 0))),
                 })
             replay_index = (replay_index + args.sensors) % len(replay_data)
         else:

@@ -357,13 +357,23 @@ async function loadStats() {
     });
   }
 
-  if (ad.length) {
-    var adLabels = ad.map(function(d) { return d.type === 'low_humidity' ? '💧 Humidité basse' : '🌡️ Temp élevée'; });
+ if (ad.length) {
+    var adLabels = ad.map(function(d) {
+      var typeLabel = d.type === 'low_humidity' ? '💧 Humidité basse' : '🌡️ Temp élevée';
+      var sevLabel  = d.severity === 'critical' ? '🔴 critique' : '🟡 warning';
+      return typeLabel + ' — ' + sevLabel;
+    });
+
     alertTypeCh = destroyAndCreate(alertTypeCh, 'chart-alert-type', {
       type: 'pie',
       data: {
         labels: adLabels,
-        datasets: [{ data: ad.map(function(d) { return d.count; }), backgroundColor: ['#22a022', '#ef4444', '#f59e0b', '#3b82f6'], borderWidth: 0 }]
+        datasets: [{
+          data: ad.map(function(d) { return d.count; }),
+          backgroundColor: ['#ef4444', '#f59e0b', '#C62828', '#FF8F00'],
+          borderWidth: 2,
+          borderColor: '#ffffff'
+        }]
       },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -406,8 +416,8 @@ function filterAlerts(btn, type) {
 }
 
 async function resolveAlert(id) {
-  var res = await fetchJSON('/api/alerts/' + id + '/resolve', { method: 'POST' });
-  if (res && res.success) {
+  var res = await fetchJSON('/api/alerts/resolve/' + id, { method: 'POST' });
+if (res && res.ok) {
     toast('Alerte résolue ✅', 'success');
     loadAlerts();
     loadDashboard();
@@ -444,11 +454,11 @@ function openIrrigateModal(sensorId) {
     var sel = document.getElementById('irr-sensor');
     if (sel) sel.value = sensorId;
   }
-  document.getElementById('modal-irrigate').classList.add('active');
+  document.getElementById('modal-irrigate').classList.add('open');
 }
 
 function closeModal() {
-  document.getElementById('modal-irrigate').classList.remove('active');
+  document.getElementById('modal-irrigate').classList.remove('open');
 }
 
 async function startIrrigation() {
